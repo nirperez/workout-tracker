@@ -39,8 +39,15 @@
         options: { emailRedirectTo: home },
       });
       btn.disabled = false;
+      if (error) console.error(error);
+      const reasons = {
+        signup_disabled: 'המייל הזה לא מורשה להיכנס לאתר.',
+        otp_disabled: 'המייל הזה לא מורשה להיכנס לאתר.',
+        over_email_send_rate_limit: 'נשלחו יותר מדי מיילים. נסה שוב בעוד שעה.',
+        over_request_rate_limit: 'יותר מדי ניסיונות. נסה שוב בעוד כמה דקות.',
+      };
       msg.textContent = error
-        ? 'השליחה נכשלה. נסה שוב בעוד דקה.'
+        ? (reasons[error.code] || 'השליחה נכשלה. נסה שוב בעוד דקה.')
         : 'נשלח. פתח את המייל במכשיר הזה ולחץ על הקישור.';
     });
   </script>
