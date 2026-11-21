@@ -64,8 +64,21 @@
       </section>
     </div>
 
-    <p style="text-align:center"><button class="ghost small" id="logout" hidden>התנתק</button></p>
+    <p style="text-align:center" id="account" hidden>
+      <button class="ghost small" id="setPw">קביעת סיסמה</button>
+      <button class="ghost small" id="logout">התנתק</button>
+    </p>
   </main>
+
+  <dialog id="pwDialog">
+    <h2>קביעת סיסמה</h2>
+    <form id="pwForm" style="display:grid;gap:10px">
+      <input id="pwNew" type="password" required minlength="6" placeholder="סיסמה חדשה (לפחות 6 תווים)" autocomplete="new-password" dir="ltr">
+      <button class="primary" type="submit">שמור סיסמה</button>
+      <button type="button" id="pwCancel">ביטול</button>
+    </form>
+    <p class="muted small" id="pwMsg" role="status"></p>
+  </dialog>
 
   <nav class="tabs">
     <a href="index.html">אימון</a>

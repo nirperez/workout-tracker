@@ -1,4 +1,4 @@
-import { requireAuth, signOut, demo } from './supabase.js';
+import { requireAuth, signOut, demo, sb } from './supabase.js';
 import * as db from './data.js';
 import {
   exKey, weeklyCounts, streakWeeks, volume, records, avgRest,
@@ -17,8 +17,26 @@ let asc = []; // oldest first
 let exChart = null;
 let calMonth = new Date();
 
-$('logout').hidden = demo;
+$('account').hidden = demo;
 $('logout').addEventListener('click', signOut);
+$('setPw').addEventListener('click', () => {
+  $('pwMsg').textContent = '';
+  $('pwNew').value = '';
+  $('pwDialog').showModal();
+});
+$('pwCancel').addEventListener('click', () => $('pwDialog').close());
+$('pwForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  $('pwMsg').textContent = 'שומר...';
+  const { error } = await sb.auth.updateUser({ password: $('pwNew').value });
+  if (error) {
+    console.error(error);
+    $('pwMsg').textContent = 'השמירה נכשלה. נסה סיסמה אחרת או נסה שוב.';
+    return;
+  }
+  $('pwMsg').textContent = 'הסיסמה נשמרה. מעכשיו אפשר להיכנס עם מייל וסיסמה.';
+  setTimeout(() => $('pwDialog').close(), 1500);
+});
 
 function baseOptions(extra = {}) {
   return {
