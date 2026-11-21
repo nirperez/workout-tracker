@@ -1,0 +1,13 @@
+{
+  "name": "האימונים שלי",
+  "short_name": "אימונים",
+  "start_url": "index.html",
+  "display": "standalone",
+  "dir": "rtl",
+  "lang": "he",
+  "background_color": "#0e0b14",
+  "theme_color": "#0e0b14",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
