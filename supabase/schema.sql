@@ -34,6 +34,16 @@ create table if not exists gym_workout_sets (
   completed_at timestamptz
 );
 
+-- The workout in progress, one row per user, so it survives closing the browser.
+create table if not exists gym_drafts (
+  user_id uuid primary key default auth.uid() references auth.users on delete cascade,
+  data jsonb not null,
+  updated_at timestamptz not null default now()
+);
+alter table gym_drafts enable row level security;
+create policy "own rows" on gym_drafts for all
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 create index if not exists gym_workouts_user_started on gym_workouts (user_id, started_at desc);
 create index if not exists gym_sets_workout on gym_workout_sets (workout_id);
 

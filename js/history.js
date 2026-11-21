@@ -64,7 +64,7 @@ function render() {
           <div class="w-actions">
             ${edit
               ? '<button class="primary" data-act="save">שמור שינויים</button><button data-act="cancel">ביטול</button>'
-              : '<button data-act="edit">ערוך</button><button class="danger ghost" data-act="delete">מחק אימון</button>'}
+              : '<button class="primary" data-act="resume">המשך אימון</button><button data-act="edit">ערוך</button><button class="danger ghost" data-act="delete">מחק אימון</button>'}
           </div>
         </div>
       </details>`;
@@ -104,6 +104,10 @@ list.addEventListener('click', async (e) => {
   const w = workouts.find((x) => x.id === card.dataset.id);
   try {
     switch (btn.dataset.act) {
+      case 'resume':
+        localStorage.setItem('gym_resume', w.id);
+        location.href = 'index.html';
+        break;
       case 'edit': editing = w.id; render(); break;
       case 'cancel': editing = null; render(); break;
       case 'save': await saveEdits(card, w); break;

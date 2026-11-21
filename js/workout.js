@@ -1,6 +1,6 @@
 import { requireAuth, demo } from './supabase.js';
 import * as db from './data.js';
-import { records, fmtClock, fmtNum, esc } from './stats.js';
+import { records, fmtClock, fmtDate, fmtNum, esc } from './stats.js';
 import { openPlanEditor } from './plan-editor.js';
 import { SEED_PLAN } from './seed.js';
 
@@ -23,7 +23,28 @@ function toast(text) {
   setTimeout(() => el.remove(), 3200);
 }
 
-const saveDraft = () => localStorage.setItem(DRAFT, JSON.stringify(draft));
+// The active workout is saved on the device on every change and, once started,
+// also in the cloud, so it survives closing the browser or switching device.
+let pushTimer = null;
+
+function pushDraft() {
+  clearTimeout(pushTimer);
+  if (draft?.startedAt) db.putDraft(draft).catch((err) => console.error(err));
+}
+
+function saveDraft(now = false) {
+  draft.updatedAt = Date.now();
+  localStorage.setItem(DRAFT, JSON.stringify(draft));
+  if (!draft.startedAt) return;
+  clearTimeout(pushTimer);
+  if (now) pushDraft();
+  else pushTimer = setTimeout(pushDraft, 800);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') pushDraft();
+});
+window.addEventListener('pagehide', pushDraft);
 
 function loadDraft() {
   try {
@@ -33,9 +54,15 @@ function loadDraft() {
   }
 }
 
+// Seconds of workout so far. A continued workout adds to its saved duration.
+function elapsed(now = Date.now()) {
+  return (draft.baseDuration || 0) + (now - (draft.resumedAt || draft.startedAt)) / 1000;
+}
+
 // Sets from the most recent workout that included this exercise.
-function lastSetsFor(ex) {
+function lastSetsFor(ex, excludeId = null) {
   for (const w of workouts) {
+    if (w.id === excludeId) continue;
     const sets = w.sets.filter((s) => s.exercise_id === ex.id).sort((a, b) => a.set_number - b.set_number);
     if (sets.length) return sets;
   }
@@ -50,6 +77,39 @@ function buildRows(ex) {
     const p = prev[i] || prev[prev.length - 1] || { reps: ex.start_reps ?? '', weight: ex.start_weight ?? '' };
     return { reps: String(p.reps), weight: String(p.weight), done: false, rest: null, completedAt: null };
   });
+}
+
+// Turns a saved workout back into an active one: its sets come back checked,
+// and the remaining sets are prefilled from the workout before it.
+function draftFromWorkout(w) {
+  const now = Date.now();
+  const d = {
+    startedAt: new Date(w.started_at).getTime(),
+    resumedAt: now,
+    baseDuration: w.duration_sec || 0,
+    lastTick: now,
+    skipRest: true,
+    workoutId: w.id,
+    sets: {},
+    extraSets: [],
+  };
+  const ids = new Set(exercises.map((e) => e.id));
+  for (const ex of exercises) {
+    const saved = w.sets.filter((s) => s.exercise_id === ex.id).sort((a, b) => a.set_number - b.set_number);
+    const older = lastSetsFor(ex, w.id);
+    const n = Math.max(ex.default_sets || 3, saved.length, older.length);
+    d.sets[ex.id] = Array.from({ length: n }, (_, i) => {
+      const s = saved[i];
+      if (s) return { reps: String(s.reps), weight: String(s.weight), done: true, rest: s.rest_before_sec, completedAt: s.completed_at };
+      const p = older[i] || saved[saved.length - 1] || older[older.length - 1]
+        || { reps: ex.start_reps ?? '', weight: ex.start_weight ?? '' };
+      return { reps: String(p.reps), weight: String(p.weight), done: false, rest: null, completedAt: null };
+    });
+  }
+  // Sets of exercises that are no longer in the plan are kept as they were.
+  d.extraSets = w.sets.filter((s) => !ids.has(s.exercise_id))
+    .map(({ id, workout_id, user_id, ...rest }) => rest);
+  return d;
 }
 
 function syncDraft() {
@@ -91,6 +151,9 @@ function updateControls() {
   $('startBtn').hidden = started;
   $('discardBtn').hidden = !started;
   $('saveBtn').disabled = doneCount() === 0;
+  const resumed = workouts.find((w) => w.id === draft.workoutId);
+  $('resumeBanner').hidden = !resumed;
+  if (resumed) $('resumeBanner').textContent = `ממשיך את האימון מ${fmtDate(resumed.started_at)}. בסיום, השמירה תעדכן אותו.`;
   tick();
 }
 
@@ -102,12 +165,12 @@ function tick() {
   }
   const now = Date.now();
   $('timer').textContent = fmtClock((now - draft.lastTick) / 1000);
-  $('timerLabel').textContent = `${doneCount() ? 'מאז הסט האחרון' : 'מתחילת האימון'} · סה"כ ${fmtClock((now - draft.startedAt) / 1000)}`;
+  $('timerLabel').textContent = `${doneCount() ? 'מאז הסט האחרון' : 'מתחילת האימון'} · סה"כ ${fmtClock(elapsed(now))}`;
 }
 
 function start() {
-  draft.startedAt = draft.lastTick = Date.now();
-  saveDraft();
+  draft.startedAt = draft.resumedAt = draft.lastTick = Date.now();
+  saveDraft(true);
   updateControls();
 }
 
@@ -127,13 +190,15 @@ function toggleSet(exId, i) {
       return;
     }
     const now = Date.now();
-    if (!draft.startedAt) draft.startedAt = draft.lastTick = now;
-    row.rest = doneCount() ? Math.round((now - draft.lastTick) / 1000) : null;
+    if (!draft.startedAt) draft.startedAt = draft.resumedAt = draft.lastTick = now;
+    // The first set after continuing a saved workout has no meaningful rest time.
+    row.rest = doneCount() && !draft.skipRest ? Math.round((now - draft.lastTick) / 1000) : null;
+    draft.skipRest = false;
     row.done = true;
     row.completedAt = new Date(now).toISOString();
     draft.lastTick = now;
   }
-  saveDraft();
+  saveDraft(true);
   render();
 }
 
@@ -163,12 +228,17 @@ $('exercises').addEventListener('click', (e) => {
 $('startBtn').addEventListener('click', start);
 
 $('discardBtn').addEventListener('click', () => {
-  if (!confirm('לבטל את האימון הנוכחי? מה שמילאת לא יישמר.')) return;
+  const text = draft.workoutId
+    ? 'לבטל את ההמשך? האימון השמור יישאר כמו שהיה, והשינויים מעכשיו לא יישמרו.'
+    : 'לבטל את האימון הנוכחי? מה שמילאת לא יישמר.';
+  if (!confirm(text)) return;
   resetDraft();
 });
 
 function resetDraft() {
+  clearTimeout(pushTimer);
   localStorage.removeItem(DRAFT);
+  db.clearDraft().catch((err) => console.error(err));
   draft = null;
   syncDraft();
   render();
@@ -193,17 +263,22 @@ $('saveBtn').addEventListener('click', async () => {
     }
   }
   if (!sets.length) return;
+  if (!confirm('לסיים את האימון ולשמור?')) return;
 
-  const before = records(workouts);
-  const duration = Math.round((now - draft.startedAt) / 1000);
+  const resumeId = draft.workoutId || null;
+  sets.push(...(draft.extraSets || []));
+  const before = records(workouts.filter((w) => w.id !== resumeId));
+  const duration = Math.round(elapsed(now));
+  const payload = {
+    started_at: new Date(draft.startedAt).toISOString(),
+    ended_at: new Date(now).toISOString(),
+    duration_sec: duration,
+    sets,
+  };
   $('saveBtn').disabled = true;
   try {
-    await db.saveWorkout({
-      started_at: new Date(draft.startedAt).toISOString(),
-      ended_at: new Date(now).toISOString(),
-      duration_sec: duration,
-      sets,
-    });
+    if (resumeId && workouts.some((w) => w.id === resumeId)) await db.replaceWorkout(resumeId, payload);
+    else await db.saveWorkout(payload);
   } catch (err) {
     console.error(err);
     $('saveBtn').disabled = false;
@@ -244,7 +319,15 @@ $('editPlanBtn').addEventListener('click', () => {
 async function init() {
   $('demoBanner').hidden = !demo;
   try {
-    [exercises, workouts] = await Promise.all([db.getExercises(), db.getWorkouts()]);
+    let cloud = null;
+    [exercises, workouts, cloud] = await Promise.all([
+      db.getExercises(),
+      db.getWorkouts(),
+      db.getDraft().catch((err) => { console.error(err); return null; }),
+    ]);
+    // Use the cloud copy of the active workout when this device has none or an older one.
+    const local = loadDraft();
+    if (cloud?.startedAt && (!local?.startedAt || (cloud.updatedAt || 0) > (local.updatedAt || 0))) draft = cloud;
     if (!exercises.length && !workouts.length) {
       await db.addExercises(SEED_PLAN.map((e, i) => ({
         name: e.name, position: i, start_weight: e.weight ?? null, start_reps: e.reps ?? null,
@@ -257,6 +340,16 @@ async function init() {
     return;
   }
   syncDraft();
+
+  // "Continue workout" from the history page.
+  const resumeId = localStorage.getItem('gym_resume');
+  localStorage.removeItem('gym_resume');
+  const target = workouts.find((w) => w.id === resumeId);
+  if (target && draft.workoutId !== target.id
+      && (!draft.startedAt || confirm('יש אימון פעיל שעוד לא נשמר. להחליף אותו באימון שבחרת להמשיך?'))) {
+    draft = draftFromWorkout(target);
+    saveDraft(true);
+  }
   render();
   setInterval(tick, 500);
 }

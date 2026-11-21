@@ -1,6 +1,8 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 
-export const demo = !SUPABASE_URL || !SUPABASE_ANON_KEY;
+// Local testing aid: on localhost, localStorage gym_demo=1 forces demo mode.
+const forceDemo = ['localhost', '127.0.0.1'].includes(location.hostname) && localStorage.getItem('gym_demo') === '1';
+export const demo = forceDemo || !SUPABASE_URL || !SUPABASE_ANON_KEY;
 export let sb = null;
 
 if (!demo) {

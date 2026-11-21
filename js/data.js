@@ -75,6 +75,45 @@ export async function saveWorkout({ started_at, ended_at, duration_sec, sets }) 
   }
 }
 
+// Replaces the sets of an already saved workout (used when continuing it).
+export async function replaceWorkout(id, { ended_at, duration_sec, sets }) {
+  if (demo) {
+    const db = load();
+    const w = db.workouts.find((x) => x.id === id);
+    Object.assign(w, { ended_at, duration_sec, sets: sets.map((s) => ({ ...s, id: uid(), workout_id: id })) });
+    return store(db);
+  }
+  // Insert the new sets before removing the old ones, so a failure never loses data.
+  const old = ok(await sb.from('gym_workout_sets').select('id').eq('workout_id', id)).map((r) => r.id);
+  ok(await sb.from('gym_workout_sets').insert(sets.map((s) => ({ ...s, workout_id: id }))));
+  if (old.length) ok(await sb.from('gym_workout_sets').delete().in('id', old));
+  ok(await sb.from('gym_workouts').update({ ended_at, duration_sec }).eq('id', id));
+}
+
+// The workout in progress, kept in the cloud so it survives closing the browser.
+const DRAFT_KEY = 'gym_demo_cloud_draft';
+
+async function userId() {
+  const { data: { session } } = await sb.auth.getSession();
+  return session?.user.id;
+}
+
+export async function getDraft() {
+  if (demo) return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+  const row = ok(await sb.from('gym_drafts').select('data').maybeSingle());
+  return row?.data ?? null;
+}
+
+export async function putDraft(draft) {
+  if (demo) return localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  ok(await sb.from('gym_drafts').upsert({ user_id: await userId(), data: draft, updated_at: new Date().toISOString() }));
+}
+
+export async function clearDraft() {
+  if (demo) return localStorage.removeItem(DRAFT_KEY);
+  ok(await sb.from('gym_drafts').delete().eq('user_id', await userId()));
+}
+
 export async function updateSet(id, patch) {
   if (demo) {
     const db = load();
